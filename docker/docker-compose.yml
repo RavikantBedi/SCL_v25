@@ -1,12 +1,19 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  app:
-    build: .
-    container_name: network_asset_reconciliation
-    ports:
-      - "8000:8000"
+
+  scl-automation:
+
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+
+    container_name: scl-automation
+
     volumes:
-      - ./input:/app/input
-      - ./output:/app/output
-      - ./logs:/app/logs
+      - ../input:/app/input
+      - ../output:/app/output
+      - ../archive:/app/archive
+      - ../logs:/app/logs
+
+    restart: unless-stopped

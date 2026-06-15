@@ -12,5 +12,7 @@ class MacCleaner:
             .str.to_lowercase()
             .str.replace_all("-", "")
             .str.replace_all(":", "")
+            .str.replace_all(".", "", literal=True)
+            .str.replace_all(" ", "")
             .alias(column)
         )

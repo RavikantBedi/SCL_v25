@@ -27,7 +27,7 @@ class ExcelReader:
 
         return df
 
-        https://chatgpt.com/g/g-p-6a2983bbba0481919e98baa621c3fd07/c/6a2aab6f-d2ac-83e8-ad40-faca3f500807
+#         https://chatgpt.com/g/g-p-6a2983bbba0481919e98baa621c3fd07/c/6a2aab6f-d2ac-83e8-ad40-faca3f500807
 
 
-https://chatgpt.com/share/6a2b77ad-7eb4-83e9-8bf5-a6e0d0afc247
+# https://chatgpt.com/share/6a2b77ad-7eb4-83e9-8bf5-a6e0d0afc247
