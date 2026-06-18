@@ -31,7 +31,7 @@ users = [
 
 rows = []
 
-for i in range(1, 51):
+for i in range(1, 101):
 
     # First 3 rows will match TXT file
     if i == 1:

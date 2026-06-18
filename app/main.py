@@ -1,7 +1,11 @@
-from pathlib import Path
-import shutil
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+import asyncio
+import shutil
+import uuid
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -16,6 +20,10 @@ from app.utils.mac_utils import MacCleaner
 from app.comparators.reconciliation_engine import ReconciliationEngine
 from app.reports.excel_reporter import ExcelReporter
 
+from app.core.logger import get_logger
+
+logger = get_logger()
+
 
 # ==================================================
 # APP
@@ -23,7 +31,7 @@ from app.reports.excel_reporter import ExcelReporter
 
 app = FastAPI(
     title="Network Asset Reconciliation",
-    version="1.0.0"
+    version="1.1.0"
 )
 
 
@@ -32,20 +40,20 @@ app = FastAPI(
 # ==================================================
 
 UPLOAD_DIR = Path("input/uploads")
-
-UPLOAD_DIR.mkdir(
-    parents=True,
-    exist_ok=True
-)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 REPORT_DIR = Path("output/reports")
-
-REPORT_DIR.mkdir(
-    parents=True,
-    exist_ok=True
-)
+REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 STATIC_DIR = Path("app/static")
+
+
+# ==================================================
+# RETENTION / CLEANUP CONFIG
+# ==================================================
+
+RETENTION_DAYS = 15                       # delete session folders older than this
+CLEANUP_INTERVAL_SECONDS = 24 * 60 * 60   # run once every 24 hours
 
 
 # ==================================================
@@ -60,21 +68,106 @@ app.mount(
 
 
 # ==================================================
-# HELPER — LATEST REPORT FILE
+# HELPER — VALIDATE SESSION ID (prevents path traversal)
 # ==================================================
 
-def _latest_report(prefix: str) -> Path | None:
+def _validate_session_id(session_id: str) -> None:
     """
-    Return the most recently modified file in REPORT_DIR
-    whose name starts with *prefix* and ends with .xlsx.
-    Returns None if no such file exists.
+    UUIDs are safe by construction, but we still validate the format
+    defensively since session_id comes from the URL (user-controlled).
+    This blocks any attempt to pass '../' or other path-breaking input.
     """
+    try:
+        uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session ID format.")
+
+
+# ==================================================
+# HELPER — FIND A REPORT WITHIN A SESSION FOLDER
+# ==================================================
+
+def _find_report(session_id: str, prefix: str) -> Path | None:
+    """
+    Look inside output/reports/<session_id>/ for a file
+    starting with *prefix* (e.g. 'matched') and ending in .xlsx.
+    """
+    session_dir = REPORT_DIR / session_id
+    if not session_dir.exists():
+        return None
+
     candidates = sorted(
-        REPORT_DIR.glob(f"{prefix}_*.xlsx"),
+        session_dir.glob(f"{prefix}_*.xlsx"),
         key=lambda p: p.stat().st_mtime,
         reverse=True
     )
     return candidates[0] if candidates else None
+
+
+# ==================================================
+# CLEANUP — DELETE SESSION FOLDERS OLDER THAN RETENTION_DAYS
+# ==================================================
+
+def _cleanup_old_sessions() -> None:
+    """
+    Scans both input/uploads/ and output/reports/ for session-ID
+    subfolders whose last-modified time is older than RETENTION_DAYS,
+    and deletes them entirely.
+
+    Runs once at startup, then every CLEANUP_INTERVAL_SECONDS afterwards
+    via the background task registered in the startup event below.
+    """
+    cutoff = datetime.now() - timedelta(days=RETENTION_DAYS)
+    deleted_count = 0
+
+    for base_dir in (UPLOAD_DIR, REPORT_DIR):
+        if not base_dir.exists():
+            continue
+
+        for session_folder in base_dir.iterdir():
+            if not session_folder.is_dir():
+                continue
+
+            try:
+                mtime = datetime.fromtimestamp(session_folder.stat().st_mtime)
+            except OSError:
+                continue
+
+            if mtime < cutoff:
+                try:
+                    shutil.rmtree(session_folder)
+                    deleted_count += 1
+                    logger.info(f"Cleanup: removed old session folder {session_folder}")
+                except Exception as e:
+                    logger.warning(f"Cleanup: failed to remove {session_folder}: {e}")
+
+    if deleted_count:
+        logger.info(f"Cleanup complete — removed {deleted_count} session folder(s).")
+    else:
+        logger.info("Cleanup complete — nothing to remove.")
+
+
+async def _cleanup_loop() -> None:
+    """
+    Background task: runs cleanup immediately on startup, then repeats
+    every CLEANUP_INTERVAL_SECONDS for as long as the app process is alive.
+    """
+    while True:
+        try:
+            _cleanup_old_sessions()
+        except Exception as e:
+            logger.error(f"Cleanup loop error: {e}")
+
+        await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+
+
+@app.on_event("startup")
+async def start_cleanup_task():
+    asyncio.create_task(_cleanup_loop())
+    logger.info(
+        f"Startup: cleanup scheduler started "
+        f"(retention={RETENTION_DAYS} days, interval={CLEANUP_INTERVAL_SECONDS}s)"
+    )
 
 
 # ==================================================
@@ -98,7 +191,8 @@ def health():
     return {
         "application": "Network Asset Reconciliation",
         "status": "running",
-        "version": "1.0.0"
+        "version": "1.1.0",
+        "retention_days": RETENTION_DAYS
     }
 
 
@@ -106,20 +200,51 @@ def health():
 # UPLOAD + PROCESS
 # ==================================================
 
+ALLOWED_MONTHS = {1, 2, 3, 6}
+REQUIRED_USER_MAPPING_COLUMNS = {"IP Address", "Name"}
+
+
 @app.post("/upload")
 async def upload_files(
-    txt_file: UploadFile = File(...),
-    excel_file: UploadFile = File(...)
+    txt_file:          UploadFile = File(...),
+    excel_file:         UploadFile = File(...),
+    user_mapping_file:  UploadFile = File(...),
+    months:             int        = Form(1)
 ):
+
+    if months not in ALLOWED_MONTHS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid months value '{months}'. Must be one of: 1, 2, 3, 6."
+        )
+
+    # ---------------------------------
+    # CREATE UNIQUE SESSION FOLDERS
+    # ---------------------------------
+    # Every upload gets its own UUID. All inputs and outputs for this
+    # run live ONLY inside these folders — this is what makes it
+    # impossible for one user's download to ever serve another user's
+    # report, even if both upload at the exact same time.
+
+    session_id = str(uuid.uuid4())
+
+    session_upload_dir = UPLOAD_DIR / session_id
+    session_report_dir = REPORT_DIR / session_id
+
+    session_upload_dir.mkdir(parents=True, exist_ok=True)
+    session_report_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"New session started: {session_id}")
 
     try:
 
         # ---------------------------------
-        # SAVE UPLOADED FILES
+        # SAVE UPLOADED FILES (into session folder)
         # ---------------------------------
 
-        txt_path   = UPLOAD_DIR / txt_file.filename
-        excel_path = UPLOAD_DIR / excel_file.filename
+        txt_path          = session_upload_dir / txt_file.filename
+        excel_path         = session_upload_dir / excel_file.filename
+        user_mapping_path  = session_upload_dir / user_mapping_file.filename
 
         with open(txt_path, "wb") as f:
             shutil.copyfileobj(txt_file.file, f)
@@ -127,12 +252,14 @@ async def upload_files(
         with open(excel_path, "wb") as f:
             shutil.copyfileobj(excel_file.file, f)
 
+        with open(user_mapping_path, "wb") as f:
+            shutil.copyfileobj(user_mapping_file.file, f)
+
         # ---------------------------------
         # TXT PIPELINE
         # ---------------------------------
 
         txt_df = TxtParser().parse(str(txt_path))
-
         txt_df = MacCleaner.normalize(txt_df, "MAC Address")
 
         # ---------------------------------
@@ -140,31 +267,45 @@ async def upload_files(
         # ---------------------------------
 
         inventory_df = ExcelReader().read(str(excel_path))
-
         inventory_df = ColumnFilter().extract(inventory_df)
-
         inventory_df = MacCleaner.normalize(inventory_df, "MAC Address")
+        inventory_df = DateFilter().filter_by_months(inventory_df, months=months)
 
-        inventory_df = DateFilter().filter_by_months(inventory_df, months=6)
+        # ---------------------------------
+        # USER MAPPING PIPELINE
+        # ---------------------------------
+
+        user_mapping_df = ExcelReader().read(str(user_mapping_path))
+
+        missing_cols = REQUIRED_USER_MAPPING_COLUMNS - set(user_mapping_df.columns)
+        if missing_cols:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"User mapping Excel is missing required column(s): "
+                    f"{', '.join(missing_cols)}. "
+                    f"Columns found: {user_mapping_df.columns}"
+                )
+            )
 
         # ---------------------------------
         # COMPARE
         # ---------------------------------
 
         engine = ReconciliationEngine()
-
         matched, unmatched = engine.compare(txt_df, inventory_df)
 
         # ---------------------------------
-        # REPORTS
+        # REPORTS (written into session folder)
         # ---------------------------------
 
         reporter = ExcelReporter()
-
         reporter.generate_reports(
             matched=matched,
             unmatched=unmatched,
-            txt_count=txt_df.height
+            txt_count=txt_df.height,
+            user_mapping=user_mapping_df,
+            output_dir=str(session_report_dir)     # ← NEW: write into session folder
         )
 
         # ---------------------------------
@@ -173,35 +314,42 @@ async def upload_files(
 
         return {
             "status": "success",
+            "session_id": session_id,                         # ← NEW
+            "months_filter": months,
             "txt_records": txt_df.height,
             "inventory_records": inventory_df.height,
+            "user_mapping_records": user_mapping_df.height,
             "matched": matched.height,
             "unmatched": unmatched.height,
             "reports": {
-                "matched":   "/download/matched",
-                "unmatched": "/download/unmatched",
-                "summary":   "/download/summary"
+                "matched":   f"/download/{session_id}/matched",
+                "unmatched": f"/download/{session_id}/unmatched",
+                "summary":   f"/download/{session_id}/summary"
             }
         }
 
-    except Exception as e:
+    except HTTPException:
+        raise
 
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==================================================
-# DOWNLOAD MATCHED
+# DOWNLOAD — MATCHED / UNMATCHED / SUMMARY
 # ==================================================
+# All three now require the session_id from the upload response,
+# so downloads are scoped to exactly the run that produced them.
 
-@app.get("/download/matched")
-def download_matched():
+@app.get("/download/{session_id}/matched")
+def download_matched(session_id: str):
+    _validate_session_id(session_id)
 
-    latest = _latest_report("matched")
-
+    latest = _find_report(session_id, "matched")
     if not latest:
         raise HTTPException(
             status_code=404,
-            detail="No matched report found. Please run reconciliation first."
+            detail="No matched report found for this session. It may have expired or been removed."
         )
 
     return FileResponse(
@@ -211,19 +359,15 @@ def download_matched():
     )
 
 
-# ==================================================
-# DOWNLOAD UNMATCHED
-# ==================================================
+@app.get("/download/{session_id}/unmatched")
+def download_unmatched(session_id: str):
+    _validate_session_id(session_id)
 
-@app.get("/download/unmatched")
-def download_unmatched():
-
-    latest = _latest_report("unmatched")
-
+    latest = _find_report(session_id, "unmatched")
     if not latest:
         raise HTTPException(
             status_code=404,
-            detail="No unmatched report found. Please run reconciliation first."
+            detail="No unmatched report found for this session. It may have expired or been removed."
         )
 
     return FileResponse(
@@ -233,19 +377,15 @@ def download_unmatched():
     )
 
 
-# ==================================================
-# DOWNLOAD SUMMARY
-# ==================================================
+@app.get("/download/{session_id}/summary")
+def download_summary(session_id: str):
+    _validate_session_id(session_id)
 
-@app.get("/download/summary")
-def download_summary():
-
-    latest = _latest_report("summary")
-
+    latest = _find_report(session_id, "summary")
     if not latest:
         raise HTTPException(
             status_code=404,
-            detail="No summary report found. Please run reconciliation first."
+            detail="No summary report found for this session. It may have expired or been removed."
         )
 
     return FileResponse(

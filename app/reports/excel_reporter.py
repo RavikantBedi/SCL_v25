@@ -102,6 +102,58 @@ class ExcelReporter:
         self._format_excel(file_path, sheet_name)
 
     # =====================================
+    # USER NAME MAPPING
+    # =====================================
+
+    def _attach_user_name(
+        self,
+        df: pl.DataFrame,
+        user_mapping: pl.DataFrame | None
+    ) -> pl.DataFrame:
+        """
+        Left-joins 'Name' onto df using IP as the key.
+        If user_mapping is None, or the IP has no match,
+        'User Name' is filled with 'Unknown'.
+
+        Expects:
+          - df has a column called 'IP' (normalized: stripped)
+          - user_mapping has columns 'IP Address' and 'Name'
+            (raw, as read from the 3rd Excel file)
+        """
+
+        if user_mapping is None or user_mapping.height == 0:
+            return df.with_columns(
+                pl.lit("Unknown").alias("User Name")
+            )
+
+        mapping_cmp = user_mapping.select([
+            pl.col("IP Address")
+              .cast(pl.Utf8, strict=False)
+              .fill_null("")
+              .str.strip_chars()
+              .alias("IP"),
+
+            pl.col("Name")
+              .cast(pl.Utf8, strict=False)
+              .fill_null("Unknown")
+              .str.strip_chars()
+              .alias("User Name"),
+        ])
+
+        # Drop duplicate IPs in mapping file (keep first occurrence)
+        mapping_cmp = mapping_cmp.unique(subset=["IP"], keep="first")
+
+        # Left join — preserves all rows of df, adds User Name where found
+        joined = df.join(mapping_cmp, on="IP", how="left")
+
+        # Fill any unmatched IPs with "Unknown"
+        joined = joined.with_columns(
+            pl.col("User Name").fill_null("Unknown")
+        )
+
+        return joined
+
+    # =====================================
     # REPORT GENERATION
     # =====================================
 
@@ -109,15 +161,29 @@ class ExcelReporter:
         self,
         matched: pl.DataFrame,
         unmatched: pl.DataFrame,
-        txt_count: int
+        txt_count: int,
+        user_mapping: pl.DataFrame | None = None,
+        output_dir: str = "output/reports"      # ← NEW: defaults to old behavior
     ):
+        """
+        output_dir lets the caller (main.py) direct reports into a
+        per-session folder, e.g. output/reports/<session_id>/, so that
+        concurrent users never share or overwrite each other's files.
 
-        base_path = "output/reports/"
+        If output_dir is not provided, falls back to the original
+        'output/reports' location for backward compatibility.
+        """
+
+        base_path = output_dir.rstrip("/") + "/"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         matched_file = f"{base_path}matched_{timestamp}.xlsx"
         unmatched_file = f"{base_path}unmatched_{timestamp}.xlsx"
         summary_file = f"{base_path}summary_{timestamp}.xlsx"
+
+        # ---------------- ATTACH USER NAME ----------------
+        matched = self._attach_user_name(matched, user_mapping)
+        unmatched = self._attach_user_name(unmatched, user_mapping)
 
         # ---------------- MATCHED ----------------
         self.save_excel(matched, matched_file, "Matched Assets")
@@ -132,7 +198,6 @@ class ExcelReporter:
             else 0
         )
 
-        # IMPORTANT FIX: force ALL values to string
         summary = pl.DataFrame({
             "Metric": [
                 "Generated On",

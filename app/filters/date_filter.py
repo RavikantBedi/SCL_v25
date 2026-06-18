@@ -38,7 +38,7 @@ class DateFilter:
     def filter_by_months(
         self,
         df: pl.DataFrame,
-        months: int = 6
+        months: int = 1
     ) -> pl.DataFrame:
 
         # ── find the date column ──────────────────────────────────────────
@@ -80,7 +80,6 @@ class DateFilter:
                 attempt = cleaned.str.strptime(
                     pl.Datetime, fmt, strict=False
                 )
-                # count how many non-null values we got
                 valid_count = attempt.drop_nulls().len()
                 if valid_count > 0:
                     parsed = attempt
