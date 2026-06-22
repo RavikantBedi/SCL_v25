@@ -38,7 +38,8 @@ class DateFilter:
     def filter_by_months(
         self,
         df: pl.DataFrame,
-        months: int = 1
+        months: int = 1,
+        keep_nulls: bool = False
     ) -> pl.DataFrame:
 
         # ── find the date column ──────────────────────────────────────────
@@ -59,7 +60,7 @@ class DateFilter:
         cutoff = datetime.now() - timedelta(days=months * 30)
         logger.info(
             f"Date filter → column='{date_column}', "
-            f"months={months}, cutoff={cutoff.strftime('%Y-%m-%d')}"
+            f"months={months}, cutoff={cutoff.strftime('%Y-%m-%d')}, keep_nulls={keep_nulls}"
         )
 
         # ── clean the raw string ──────────────────────────────────────────
@@ -102,10 +103,16 @@ class DateFilter:
         df = df.with_columns(parsed.alias(date_column))
 
         before = df.height
-        filtered = df.filter(
-            pl.col(date_column).is_not_null()
-            & (pl.col(date_column) >= cutoff)
-        )
+        
+        if keep_nulls:
+            filtered = df.filter(
+                pl.col(date_column).is_null() | (pl.col(date_column) >= cutoff)
+            )
+        else:
+            filtered = df.filter(
+                pl.col(date_column).is_not_null() & (pl.col(date_column) >= cutoff)
+            )
+            
         after = filtered.height
 
         logger.info(

@@ -308,12 +308,13 @@ async def upload_files(
         matched, unmatched = engine.compare(txt_df, inventory_df)
 
         # ---------------------------------
-        # DATE FILTER  (applied to matched records only)
+        # DATE FILTER  (applied to matched AND unmatched records)
         # ---------------------------------
-        # This removes matched records older than the selected timeframe
-        # from the Matched report. They are NOT placed in Unmatched,
-        # preserving the strict definition of Unmatched (no IP/MAC match found).
+        # This removes matched and unmatched records older than the selected timeframe
+        # from the reports. For unmatched, we preserve pure network assets (which have
+        # no date) by allowing null dates.
         matched = DateFilter().filter_by_months(matched, months=months)
+        unmatched = DateFilter().filter_by_months(unmatched, months=months, keep_nulls=True)
 
         # ---------------------------------
         # REPORTS (written into session folder)

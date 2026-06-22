@@ -147,15 +147,39 @@ class ReconciliationEngine:
         ).drop(["_ip_key", "_mac_key"])
 
         # ====================================================
-        # UNMATCHED = TXT rows with no inventory match (anti join)
-        # Keeps all original TXT columns.
+        # UNMATCHED = TXT rows with no inventory match + INVENTORY rows with no TXT match
         # ====================================================
-        unmatched = txt_norm.join(
+        txt_unmatched_raw = txt_norm.join(
             inv_keys_only.select(["_ip_key", "_mac_key"]),
             left_on=["_ip_key", "_mac_key"],
             right_on=["_ip_key", "_mac_key"],
             how="anti"
+        )
+
+        # Best-effort fill: for unmatched TXT records, try to populate missing inventory 
+        # fields (like CompName, Last AgentCom) by looking up the MAC address in the inventory.
+        inv_lookup_by_mac = (
+            inv_keys_only
+            .drop("_ip_key")
+            .filter(pl.col("_mac_key") != "")
+            .unique(subset=["_mac_key"], keep="first")
+        )
+
+        txt_unmatched = txt_unmatched_raw.join(
+            inv_lookup_by_mac,
+            left_on="_mac_key",
+            right_on="_mac_key",
+            how="left"
         ).drop(["_ip_key", "_mac_key"])
+
+        inv_unmatched = inv_norm.join(
+            txt_norm.select(["_ip_key", "_mac_key"]),
+            left_on=["_ip_key", "_mac_key"],
+            right_on=["_ip_key", "_mac_key"],
+            how="anti"
+        ).drop(["_ip_key", "_mac_key"])
+
+        unmatched = pl.concat([txt_unmatched, inv_unmatched], how="diagonal")
 
         logger.info(
             f"Reconciliation done | "
