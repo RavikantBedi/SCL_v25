@@ -143,6 +143,10 @@ class ExcelReporter:
         # Drop duplicate IPs in mapping file (keep first occurrence)
         mapping_cmp = mapping_cmp.unique(subset=["IP"], keep="first")
 
+        # Drop existing 'User Name' if it exists so we don't get duplicates
+        if "User Name" in df.columns:
+            df = df.drop("User Name")
+
         # Left join — preserves all rows of df, adds User Name where found
         joined = df.join(mapping_cmp, on="IP", how="left")
 
@@ -184,6 +188,17 @@ class ExcelReporter:
         # ---------------- ATTACH USER NAME ----------------
         matched = self._attach_user_name(matched, user_mapping)
         unmatched = self._attach_user_name(unmatched, user_mapping)
+
+        # ---------------- ALIGN COLUMNS ----------------
+        if "System Model" in matched.columns:
+            matched = matched.drop("System Model")
+
+        target_cols = matched.columns
+        for col in target_cols:
+            if col not in unmatched.columns:
+                unmatched = unmatched.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
+        
+        unmatched = unmatched.select(target_cols)
 
         # ---------------- MATCHED ----------------
         self.save_excel(matched, matched_file, "Matched Assets")

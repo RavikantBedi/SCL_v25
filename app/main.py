@@ -269,7 +269,6 @@ async def upload_files(
         inventory_df = ExcelReader().read(str(excel_path))
         inventory_df = ColumnFilter().extract(inventory_df)
         inventory_df = MacCleaner.normalize(inventory_df, "MAC Address")
-        inventory_df = DateFilter().filter_by_months(inventory_df, months=months)
 
         # ---------------------------------
         # USER MAPPING PIPELINE
@@ -277,7 +276,18 @@ async def upload_files(
 
         user_mapping_df = ExcelReader().read(str(user_mapping_path))
 
-        missing_cols = REQUIRED_USER_MAPPING_COLUMNS - set(user_mapping_df.columns)
+        # Flexible column mapping for the 3rd file
+        mapping_rename = {}
+        for col in user_mapping_df.columns:
+            cleaned = col.strip().lower()
+            if cleaned in ["ip address", "ipaddress", "ip", "ipadd"]:
+                mapping_rename[col] = "IP Address"
+            elif cleaned in ["name", "user name", "username", "user"]:
+                mapping_rename[col] = "Name"
+
+        user_mapping_df = user_mapping_df.rename(mapping_rename)
+
+        missing_cols = {"IP Address", "Name"} - set(user_mapping_df.columns)
         if missing_cols:
             raise HTTPException(
                 status_code=422,
@@ -289,11 +299,21 @@ async def upload_files(
             )
 
         # ---------------------------------
-        # COMPARE
+        # COMPARE  (against full inventory — no date pre-filter)
         # ---------------------------------
+        # Unmatched = TXT records whose IP+MAC is not in the Excel at all.
+        # Date is NOT a matching criterion.
 
         engine = ReconciliationEngine()
         matched, unmatched = engine.compare(txt_df, inventory_df)
+
+        # ---------------------------------
+        # DATE FILTER  (applied to matched records only)
+        # ---------------------------------
+        # This removes matched records older than the selected timeframe
+        # from the Matched report. They are NOT placed in Unmatched,
+        # preserving the strict definition of Unmatched (no IP/MAC match found).
+        matched = DateFilter().filter_by_months(matched, months=months)
 
         # ---------------------------------
         # REPORTS (written into session folder)
@@ -314,7 +334,7 @@ async def upload_files(
 
         return {
             "status": "success",
-            "session_id": session_id,                         # ← NEW
+            "session_id": session_id,
             "months_filter": months,
             "txt_records": txt_df.height,
             "inventory_records": inventory_df.height,

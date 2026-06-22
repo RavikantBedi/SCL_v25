@@ -86,23 +86,76 @@ class ReconciliationEngine:
                 )
 
         # ====================================================
-        # NORMALIZE — clean IP and MAC for comparison
+        # NORMALIZE — add clean key columns without dropping originals
         # ====================================================
-        txt_cmp = self._normalize(txt_df.select(["IP", "MAC"]))
-        inv_cmp = self._normalize(inventory_df.select(["IP", "MAC"]))
+        # MAC key: strip ALL non-hex characters (0-9, a-f only).
+        # This handles every possible format:
+        #   a464-a913-ed45  →  a464a913ed45
+        #   A464A913ED45    →  a464a913ed45
+        #   A4:64:A9:13:ED:45 → a464a913ed45
+        # ====================================================
 
-        logger.info(f"TXT sample after normalize:\n{txt_cmp.head(5)}")
-        logger.info(f"Inventory sample after normalize:\n{inv_cmp.head(5)}")
+        # TXT: add normalized key columns _ip_key, _mac_key alongside originals
+        txt_norm = txt_df.with_columns([
+            pl.col("IP")
+              .cast(pl.Utf8, strict=False)
+              .fill_null("")
+              .str.strip_chars()
+              .alias("_ip_key"),
+
+            pl.col("MAC")
+              .cast(pl.Utf8, strict=False)
+              .fill_null("")
+              .str.to_lowercase()
+              .str.replace_all(r"[^0-9a-f]", "")   # keep ONLY hex digits
+              .alias("_mac_key"),
+        ])
+
+        # Inventory: add normalized key columns _ip_key, _mac_key alongside originals
+        inv_norm = inventory_df.with_columns([
+            pl.col("IP")
+              .cast(pl.Utf8, strict=False)
+              .fill_null("")
+              .str.strip_chars()
+              .alias("_ip_key"),
+
+            pl.col("MAC")
+              .cast(pl.Utf8, strict=False)
+              .fill_null("")
+              .str.to_lowercase()
+              .str.replace_all(r"[^0-9a-f]", "")   # keep ONLY hex digits
+              .alias("_mac_key"),
+        ])
+
+        logger.info(f"TXT sample (normalized keys):\n{txt_norm.select(['IP','MAC','_ip_key','_mac_key']).head(5)}")
+        logger.info(f"Inventory sample (normalized keys):\n{inv_norm.select(['IP','MAC','_ip_key','_mac_key']).head(5)}")
+
+        # Drop the renamed IP/MAC columns from inventory before join to avoid
+        # duplicate column names; keep only extra inventory columns + keys
+        inv_keys_only = inv_norm.drop(["IP", "MAC"])
 
         # ====================================================
-        # MATCH on IP + MAC (inner join)
+        # MATCH on IP + MAC keys
+        # TXT rows whose (IP+MAC) pair exists in inventory,
+        # with full inventory data joined in.
         # ====================================================
-        matched = txt_cmp.join(inv_cmp, on=["IP", "MAC"], how="inner")
+        matched = txt_norm.join(
+            inv_keys_only,
+            left_on=["_ip_key", "_mac_key"],
+            right_on=["_ip_key", "_mac_key"],
+            how="inner"
+        ).drop(["_ip_key", "_mac_key"])
 
         # ====================================================
         # UNMATCHED = TXT rows with no inventory match (anti join)
+        # Keeps all original TXT columns.
         # ====================================================
-        unmatched = txt_cmp.join(inv_cmp, on=["IP", "MAC"], how="anti")
+        unmatched = txt_norm.join(
+            inv_keys_only.select(["_ip_key", "_mac_key"]),
+            left_on=["_ip_key", "_mac_key"],
+            right_on=["_ip_key", "_mac_key"],
+            how="anti"
+        ).drop(["_ip_key", "_mac_key"])
 
         logger.info(
             f"Reconciliation done | "
