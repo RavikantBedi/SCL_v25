@@ -1,14 +1,20 @@
 # SCL Automation – Network Asset Reconciliation System
 
-**An automated solution for reconciling network assets by comparing TXT source binding files with Excel inventory records.**
+**An automated web application for reconciling network assets by comparing TXT source binding files against Excel inventory records — with categorized unmatched reports, user name enrichment, and date-based filtering.**
 
-Developed as part of internship work to automate asset verification, reduce manual reconciliation efforts, and provide professional Excel reports for network asset management.
+Developed as part of internship work at SCL to automate asset verification, reduce manual reconciliation efforts, and deliver professional, downloadable Excel reports through a modern dark-themed web UI.
 
 ---
 
 ## Overview
 
-SCL Automation is an automated network asset reconciliation system built with Python and FastAPI. It processes source binding files (TXT) and inventory records (Excel) to identify matching and unmatched network assets, generating professional reports with configurable filtering and comprehensive audit trails.  
+SCL Automation is a full-stack network asset reconciliation tool built with **Python**, **FastAPI**, and **Polars**. It accepts three input files via a drag-and-drop web interface:
+
+1. **TXT File** — Network source binding export (IP + MAC address per line)
+2. **Excel Inventory File** — Internal asset inventory with IP, MAC, Computer Name, and last agent communication dates
+3. **User Mapping File** — Maps IP addresses to human-readable user/device names
+
+The system reconciles records using exact **IP + MAC address matching**, applies a configurable **date filter**, and generates **5 categorized downloadable Excel reports** with professional formatting.
 
 ---
 
@@ -17,139 +23,115 @@ SCL Automation is an automated network asset reconciliation system built with Py
 ### Data Processing Pipeline
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        INPUT LAYER                              │
-├──────────────────┬──────────────────┬──────────────────────────┤
-│  TXT File        │  Excel File      │  User Mapping File       │
-│  (Source Binding)│  (Inventory)     │  (IP-to-Name)            │
-└────────┬─────────┴────────┬─────────┴──────────┬────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                          INPUT LAYER                             │
+├──────────────────┬──────────────────┬────────────────────────────┤
+│  TXT File        │  Excel Inventory │  User Mapping File         │
+│  (ip-address     │  (IP, MAC,       │  (IP Address → Name)       │
+│   mac-address)   │   CompName, Date)│                            │
+└────────┬─────────┴────────┬─────────┴──────────┬─────────────────┘
          │                  │                     │
          ▼                  ▼                     ▼
-    ┌─────────────────┬──────────────────┬───────────────────┐
-    │  TXT Parser     │  Excel Reader    │  User Mapping     │
-    │  (Regex)        │  (Polars→Pandas) │  Parser           │
-    └────────┬────────┴────────┬─────────┴─────────┬──────────┘
-             │                 │                   │
-             ▼                 ▼                   ▼
-    ┌─────────────────┬──────────────────┐    ┌──────────────┐
-    │ MAC Normalize   │  Date Filter     │    │ Column Map   │
-    │ (lowercase,     │  (configurable   │    │ (IP, Name)   │
-    │  no separators) │   1-6 months)    │    │              │
-    └────────┬────────┴────────┬─────────┘    └─────┬────────┘
-             │                 │                    │
-             └─────────────┬───┴────────────────────┘
-                           ▼
-                 ┌─────────────────────┐
-                 │ Reconciliation      │
-                 │ Engine              │
-                 │ (IP+MAC Matching)   │
-                 └────────┬────────────┘
-                          │
-                    ┌─────┴──────┐
-                    ▼            ▼
-              ┌──────────┐  ┌──────────────┐
-              │ Matched  │  │ Unmatched    │
-              │ Records  │  │ Records      │
-              └────┬─────┘  └──────┬───────┘
-                   │               │
-                   └────────┬──────┘
-                            ▼
-                 ┌──────────────────────┐
-                 │ Report Generation    │
-                 │ (Excel Formatting)   │
-                 └────────┬─────────────┘
-                          │
-                    ┌─────┴──────────────┐
-                    ▼                    ▼
-              ┌───────────────┐    ┌──────────────┐
-              │ Reports       │    │ Audit Trail  │
-              │ (XLSX files)  │    │ & Logs       │
-              └───────────────┘    └──────────────┘
+    ┌──────────────┬──────────────────┬───────────────────┐
+    │  TXT Parser  │  Excel Reader    │  User Mapping     │
+    │  (Regex)     │  (Polars)        │  Parser           │
+    └──────┬───────┴────────┬─────────┴─────────┬─────────┘
+           │                │                   │
+           ▼                ▼                   │
+    ┌──────────────┬──────────────────┐         │
+    │ MAC Normalize│  Column Filter   │         │
+    │ (hex-only,   │  (IP, MAC,       │         │
+    │  lowercase)  │   Date, Name)    │         │
+    └──────┬───────┴────────┬─────────┘         │
+           │                │                   │
+           └────────────┬───┘                   │
+                        ▼                       │
+             ┌──────────────────────┐           │
+             │  Reconciliation      │           │
+             │  Engine              │           │
+             │  (IP + MAC Matching) │           │
+             └──────────┬───────────┘           │
+                        │                       │
+           ┌────────────┼───────────┐           │
+           ▼            ▼           ▼           │
+      ┌─────────┐  ┌─────────┐ ┌─────────┐     │
+      │ Matched │  │Category │ │Category │     │
+      │ Records │  │A (Inv.) │ │B (Net.) │     │
+      └────┬────┘  └────┬────┘ └────┬────┘     │
+           │            │           │           │
+           └────────────┴───────────┴─────┬─────┘
+                                          ▼
+                               ┌──────────────────────┐
+                               │  Date Filter         │
+                               │  (1 / 2 / 3 / 6 mo.) │
+                               └──────────┬───────────┘
+                                          │
+                               ┌──────────▼───────────┐
+                               │  User Name Enrichment│
+                               │  (IP → Name lookup,  │
+                               │   CompName fallback) │
+                               └──────────┬───────────┘
+                                          │
+                               ┌──────────▼───────────┐
+                               │  Excel Reporter      │
+                               │  (5 XLSX outputs)    │
+                               └──────────────────────┘
 ```
 
-### Component Architecture
+### Report Outputs
 
-```
-┌─────────────────────────────────────────────────────┐
-│              FastAPI Web Server                     │
-│  ┌────────────────────────────────────────────────┐ │
-│  │  Endpoints: /upload, /download/*, /health     │ │
-│  │  Web UI: Drag-and-drop interface              │ │
-│  └─────────────┬──────────────────────────────────┘ │
-└────────────────┼──────────────────────────────────────┘
-                 │
-        ┌────────▼────────┐
-        │ Request Handler │
-        │ (FastAPI layer) │
-        └────────┬────────┘
-                 │
-    ┌────────────┴────────────┐
-    │                         │
-    ▼                         ▼
-┌─────────────┐         ┌──────────────┐
-│ Folder      │         │ API Pipeline │
-│ Watcher     │         │ (HTTP)       │
-│ (Watchdog)  │         │              │
-└─────┬───────┘         └──────┬───────┘
-      │                        │
-      └────────────┬───────────┘
-                   ▼
-        ┌──────────────────────┐
-        │ Processing Engine    │
-        │ ┌──────────────────┐ │
-        │ │ Parser Layer     │ │
-        │ │ Filter Layer     │ │
-        │ │ Reconcile Layer  │ │
-        │ │ Report Layer     │ │
-        │ └──────────────────┘ │
-        └──────────────────────┘
-                   │
-        ┌──────────┴──────────┐
-        ▼                     ▼
-    ┌────────┐           ┌─────────────┐
-    │ Archive │           │ Output      │
-    │ Store   │           │ Reports     │
-    └────────┘           └─────────────┘
-```
+| File | Description |
+|------|-------------|
+| `matched.xlsx` | Records where IP + MAC matched exactly between TXT and Inventory |
+| `unmatched.xlsx` | Combined view of all unmatched records (Category A + B) |
+| `data_match.xlsx` | **Category A** — Inventory assets NOT seen on the network (TXT) |
+| `data_unmatched.xlsx` | **Category B** — Network assets (TXT) NOT found in inventory |
+| `summary.xlsx` | Statistics: total records, match counts, match percentage, date filter used |
 
 ---
 
 ## Project Structure
 
 ```
-app/                          # Main application code
-├── main.py                  # FastAPI entry point
-├── parsers/                 # File parsing modules
-│   ├── txt_parser.py
-│   └── excel_reader.py
-├── filters/                 # Data filtering modules
-│   ├── date_filter.py
-│   └── column_filter.py
-├── comparators/             # Reconciliation logic
-│   └── reconciliation_engine.py
-├── reports/                 # Report generation
-│   └── excel_reporter.py
-├── utils/                   # Utility functions
-│   ├── mac_utils.py
-│   ├── archive_manager.py
-│   └── file_logger.py
-├── watcher/                 # File monitoring
-│   └── folder_watcher.py
-└── core/                    # Core utilities
-    └── logger.py
-
-config/                       # Configuration files
-├── settings.yaml
-├── mappings.yaml
-└── logging.yaml
-
-input/incoming/               # Watch folder for input files
-output/reports/               # Generated XLSX reports
-archive/                      # Processed files archive
-logs/                         # Application logs
-tests/                        # Unit test suite
-docker/                       # Docker configuration
+SCL_2026/
+├── app/                          # Main application package
+│   ├── main.py                   # FastAPI app: routes, session management, download endpoints
+│   ├── static/
+│   │   └── index.html            # Full-featured dark-mode web UI
+│   ├── parsers/
+│   │   ├── txt_parser.py         # Regex-based TXT source binding parser
+│   │   └── excel_reader.py       # Multi-strategy Excel reader (Polars)
+│   ├── filters/
+│   │   ├── date_filter.py        # Filter records by N-month lookback window
+│   │   └── column_filter.py      # Extract/normalize required inventory columns
+│   ├── comparators/
+│   │   └── reconciliation_engine.py  # IP+MAC matching; returns matched, Category A, Category B
+│   ├── reports/
+│   │   └── excel_reporter.py     # Generate 5 formatted XLSX files per session
+│   ├── utils/
+│   │   ├── mac_utils.py          # MAC address normalization (strip separators, lowercase)
+│   │   ├── archive_manager.py    # Processed file archiving
+│   │   └── file_logger.py        # File-based operation logging
+│   ├── watcher/
+│   │   └── folder_watcher.py     # Watchdog-based automatic file pair processing
+│   └── core/
+│       └── logger.py             # Centralized Loguru logger setup
+│
+├── config/                       # YAML configuration files
+│   ├── settings.yaml
+│   ├── mappings.yaml
+│   └── logging.yaml
+│
+├── input/uploads/                # Per-session uploaded file storage (auto-cleaned)
+├── output/reports/               # Per-session generated Excel reports (auto-cleaned)
+├── logs/                         # Application logs
+├── tests/                        # Pytest unit tests
+├── docker/                       # Docker configuration
+├── requirements.txt
+└── README.md
 ```
+
+---
 
 ## Installation & Setup
 
@@ -159,37 +141,52 @@ docker/                       # Docker configuration
 
 ### Quick Start
 
-1. Clone/navigate to project directory
-2. Create virtual environment: `python -m venv .venv`
-3. Activate: `.\venv\Scripts\activate` (Windows) or `source .venv/bin/activate` (Linux/macOS)
-4. Install dependencies: `pip install -r requirements.txt`
+```bash
+# 1. Clone the repository
+git clone https://github.com/RavikantBedi/SCL_23.git
+cd SCL_23
+
+# 2. Create and activate virtual environment
+python -m venv .venv
+.\.venv\Scripts\activate          # Windows
+# source .venv/bin/activate       # Linux/macOS
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Start the server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Open your browser at: **http://localhost:8000**
 
 ---
 
 ## Running the Application
 
-### Option 1: Folder Watcher (Automatic)
+### Web UI (Recommended)
 
-Monitors `input/incoming/` for new TXT and Excel file pairs:
-```bash
-python -m app.watcher.folder_watcher
-```
-
-### Option 2: FastAPI Server (Interactive)
-
-Runs REST API with web UI at http://localhost:8000:
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**Key Endpoints:**
-- POST `/upload` - Upload and process files
-- GET `/download/matched` - Download matched records
-- GET `/download/unmatched` - Download unmatched records
-- GET `/download/summary` - Download summary report
-- GET `/health` - Health check
+Navigate to **http://localhost:8000** and use the drag-and-drop interface to:
+1. Upload your **TXT network file**
+2. Upload your **Excel inventory file**
+3. Upload your **User Mapping Excel file**
+4. Select a **date filter** (1, 2, 3, or 6 months)
+5. Click **Run Reconciliation**
+6. Download any of the **5 generated reports**
 
-### Option 3: Docker Deployment
+### Folder Watcher (Automatic / Batch)
+
+Automatically processes TXT + Excel file pairs placed in the watch folder:
+
+```bash
+python -m app.watcher.folder_watcher
+```
+
+### Docker
 
 ```bash
 docker compose -f docker/docker-compose.yml up --build
@@ -197,86 +194,167 @@ docker compose -f docker/docker-compose.yml up --build
 
 ---
 
-## Processing Workflow
+## API Endpoints
 
-### Input Files
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/` | Serve the web UI |
+| `GET`  | `/health` | Health check |
+| `POST` | `/upload` | Upload 3 files + months filter, returns session ID and stats |
+| `GET`  | `/download/{session_id}/matched` | Download `matched.xlsx` |
+| `GET`  | `/download/{session_id}/unmatched` | Download `unmatched.xlsx` (combined) |
+| `GET`  | `/download/{session_id}/inv_unmatched` | Download `data_match.xlsx` (Category A) |
+| `GET`  | `/download/{session_id}/txt_unmatched` | Download `data_unmatched.xlsx` (Category B) |
+| `GET`  | `/download/{session_id}/summary` | Download `summary.xlsx` |
 
-**TXT File** (Source Binding):
-```
-ip-address 192.168.1.10 mac-address 00-1A-2B-3C-4D-5E
-ip-address 192.168.1.11 mac-address 00-1A-2B-3C-4D-5F
-```
-
-**Excel File** - Inventory with columns: IP Address, MAC Address, Device Name, Last Agent Comm
-
-**User Mapping File** (Optional) - Columns: IP Address, Name
-
-### Processing Pipeline
-
-1. Parse input files (TXT, Excel, User Mapping)
-2. Normalize MAC addresses (lowercase, remove separators)
-3. Filter inventory by date range (1, 2, 3, or 6 months)
-4. Reconcile records by IP + MAC matching
-5. Enrich matched results with user names
-6. Generate Excel reports with professional formatting
-7. Archive processed files
-8. Log all operations
-
-### Output Reports
-
-All timestamped reports are saved in `output/reports/`:
-
-- **matched_YYYYMMDD_HHMMSS.xlsx** - Successfully matched records with enriched user data
-- **unmatched_YYYYMMDD_HHMMSS.xlsx** - Unmatched records (audit trail and identification of missing assets)
-- **summary_YYYYMMDD_HHMMSS.xlsx** - Reconciliation statistics and metrics
-
-Reports include professional Excel formatting: headers, cell borders, auto-sized columns, and frozen rows.
+> Each upload creates a unique **UUID session**. Downloads are session-scoped — two concurrent users never see each other's reports.
 
 ---
 
-## Testing
+## Input File Formats
 
-Run the test suite with:
-```bash
-pytest tests/                          # Run all tests
-pytest tests/ -v                       # Verbose output
-pytest tests/ --cov=app                # With coverage report
+### TXT File (Source Binding Export)
+Each line must contain an IP address and MAC address in any common format:
+```
+ip-address 192.168.1.10 mac-address A4:64:A9:13:ED:2C
+ip-address 10.143.12.36 mac-address a464-a913-ed45
 ```
 
-Test files: `test_parser.py`, `test_compare.py`, `test_converter.py`, `test_date_filter.py`, `test_reports.py`, `test_api.py`, and others.
+Supported separators: `:`, `-`, `.`, spaces, or none.
+
+### Excel Inventory File
+Must contain (column names are flexible — auto-detected):
+- `IP Address` / `IPAdd` / `IP`
+- `MAC Address` / `Mac Address`
+- `Last AgentCom` / `Last Agent Communication` (date column for filtering)
+- `CompName` (computer/device name — used as User Name fallback)
+
+### User Mapping File
+Must contain two columns:
+- `IP Address` / `IP`
+- `Name` / `User Name`
+
+This file maps IP addresses to human-readable names. If an IP has no mapping, the system automatically falls back to `CompName` from inventory.
 
 ---
 
-## Configuration
+## Reconciliation Logic
 
-### settings.yaml
-```yaml
-date_filter_months: 6               # Default filter: 1, 2, 3, or 6 months
-watch_folder: input/incoming        # Folder to monitor
-process_delay: 5                    # Seconds before processing
-upload_limit_mb: 100                # Max upload size
-```
+### Matching Strategy
+Records are matched using **exact IP + MAC address comparison**:
+- MAC addresses are normalized: all separators removed, converted to lowercase hex
+- IP addresses are whitespace-stripped
+- A record is **matched** only when **both** IP and MAC agree between TXT and Inventory
 
-### logging.yaml
-Configures log levels, handlers, and output format (file and console)
+### Unmatched Categories
 
-### mappings.yaml
-Column name mappings for flexible parsing of varying Excel formats
+| Category | Description |
+|----------|-------------|
+| **Category A** (`data_match.xlsx`) | Assets in your Inventory file that were NOT found on the network (TXT). These are devices registered in your system but not seen actively on the network. |
+| **Category B** (`data_unmatched.xlsx`) | Assets on the network (TXT) that were NOT found in your Inventory. These are devices active on the network but not registered in your system. |
+
+### Date Filtering
+After reconciliation, all records are filtered by the `Last AgentCom` date column. Records older than the selected lookback period are excluded from **all** 5 output files:
+
+| Option | Keeps records with agent comm in last... |
+|--------|------------------------------------------|
+| 1 Month | 30 days |
+| 2 Months | 60 days |
+| 3 Months | 90 days |
+| 6 Months | 180 days |
+
+### User Name Enrichment
+For every record in every report:
+1. Lookup the IP in the **User Mapping file** → use `Name` if found
+2. If not found → use `CompName` from Inventory as fallback
+3. If no `CompName` either → value is `"Unknown"`
+
+---
+
+## Session Management & Auto-Cleanup
+
+Each upload gets an isolated UUID-based session:
+- Uploaded files → `input/uploads/<session_id>/`
+- Generated reports → `output/reports/<session_id>/`
+- Sessions older than **15 days** are automatically deleted by a background cleanup task that runs every 24 hours
+
+This ensures:
+- No file conflicts between concurrent users
+- Automatic disk space management
+- Download links remain valid for 15 days
+
+---
+
+## Output Report Format
+
+All generated Excel files include professional formatting applied automatically:
+
+- **Dark blue header row** with white bold text
+- **Thin cell borders** on all data cells
+- **Center-aligned** content
+- **Auto-sized column widths**
+- **Frozen header row** (row 1 stays visible when scrolling)
+- **Timestamped filenames** (e.g., `matched_20260623_013952.xlsx`)
 
 ---
 
 ## Key Features
 
-- **MAC Normalization:** Standardizes format (lowercase, no separators) for accurate matching
-- **Flexible Column Detection:** Auto-detects variant column names across Excel files
-- **User Mapping & Enrichment:** Optional third file to add user/device names to matched records
-- **Robust Excel Handling:** Multi-format support (.xlsx, .xls) with automatic strategy selection
-- **Professional Reporting:** Formatted Excel output with headers, borders, and frozen rows
-- **Automatic Archiving:** Maintains audit trail by archiving processed files
-- **Comprehensive Logging:** Full operation history with timestamps and error tracking
-- **Date Filtering:** Configurable retention periods (1, 2, 3, or 6 months)
-- **File Watcher:** Automatic processing of file pairs placed in `input/incoming/`
-- **Thread-Safe Processing:** Reliable handling of concurrent operations
+- ✅ **Drag-and-Drop Web UI** — Modern dark-mode interface with animated progress steps
+- ✅ **IP + MAC Reconciliation** — Exact dual-key matching with MAC normalization
+- ✅ **5 Report Downloads** — Matched, combined unmatched, Category A, Category B, Summary
+- ✅ **Date Filtering** — Keep only records active in the last 1, 2, 3, or 6 months
+- ✅ **User Name Enrichment** — Auto-fills user names via IP lookup with CompName fallback
+- ✅ **Session Isolation** — Per-user UUID sessions prevent report cross-contamination
+- ✅ **Auto-Cleanup** — Sessions older than 15 days are automatically purged
+- ✅ **Flexible Column Detection** — Handles variant column names across different Excel formats
+- ✅ **Professional Excel Output** — Formatted headers, borders, frozen rows, auto column widths
+- ✅ **Folder Watcher** — Automatic batch processing without the web UI
+- ✅ **Docker Support** — Containerized deployment ready
+
+---
+
+## Testing
+
+```bash
+pytest tests/                   # Run all tests
+pytest tests/ -v                # Verbose output
+pytest tests/ --cov=app         # With coverage report
+```
+
+---
+
+## Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| `fastapi` | REST API framework and web server |
+| `uvicorn` | ASGI application server |
+| `polars` | High-performance DataFrame processing (primary engine) |
+| `openpyxl` | Read/write `.xlsx` files + apply cell formatting |
+| `python-multipart` | Multipart form data and file upload handling |
+| `loguru` | Advanced logging with rotation and formatting |
+| `watchdog` | File system monitoring for folder watcher mode |
+| `pyyaml` | YAML configuration file parsing |
+| `pyarrow` | Data format interoperability |
+| `pytest` | Unit testing framework |
+
+Install all:
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## System Requirements
+
+| Spec | Minimum | Recommended |
+|------|---------|-------------|
+| OS | Windows / Linux / macOS | Windows 10+ / Ubuntu 22.04+ |
+| Python | 3.10 | 3.11+ |
+| RAM | 2 GB | 4 GB+ (for large datasets) |
+| Disk | 500 MB | 2 GB+ (logs + session data) |
+| Docker | 20.10+ | Latest |
 
 ---
 
@@ -284,268 +362,46 @@ Column name mappings for flexible parsing of varying Excel formats
 
 | Issue | Solution |
 |-------|----------|
-| ModuleNotFoundError | Activate venv and reinstall: `pip install -r requirements.txt` |
-| Port 8000 in use | Use different port: `--port 8001` |
-| Files not detected | Verify `input/incoming/` exists with read permissions |
-| No reports generated | Check TXT has `ip-address` and `mac-address` patterns |
-| Excel encoding errors | Ensure files are valid; system handles UTF-8 and BOM automatically |
-| Docker build fails | Run `docker system prune` |
-| MAC addresses don't match | Verify MAC normalization; check format consistency |
-
-For debugging, enable verbose logging:
-```bash
-set PYTHONUNBUFFERED=1
-python -m app.watcher.folder_watcher
-```
+| `ModuleNotFoundError` | Activate venv: `.\.venv\Scripts\activate` then `pip install -r requirements.txt` |
+| Port 8000 in use | Use `--port 8001` |
+| Upload returns 422 | Check that User Mapping file has `IP Address` and `Name` columns |
+| All reports are empty | Date filter may be too strict — try 6 months |
+| MAC addresses not matching | Verify both files use the same physical MAC addresses |
+| Reports expire / 404 on download | Sessions expire after 15 days — re-upload your files |
+| `pl is not defined` error | Ensure `import polars as pl` is at top of `main.py` |
 
 Check `logs/app.log` for detailed operation history.
 
-## 📚 Dependencies
+---
 
-### Core Dependencies
+## Version History
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `fastapi` | Latest | REST API framework and web server |
-| `uvicorn` | Latest | ASGI application server |
-| `polars` | Latest | High-performance DataFrame processing (primary) |
-| `pandas` | Latest | DataFrame processing (fallback) |
-| `openpyxl` | Latest | Read/write modern Excel files (.xlsx) |
-| `xlsxwriter` | Latest | Create Excel files with advanced formatting |
-| `xlrd` | Latest | Read legacy Excel files (.xls) |
-| `watchdog` | Latest | File system monitoring and event handling |
-| `loguru` | Latest | Advanced logging with rotation and formatting |
-| `pyyaml` | Latest | Configuration file parsing (YAML) |
-| `python-dotenv` | Latest | Environment variable loading from .env |
-| `python-multipart` | Latest | Form data and file upload handling |
-| `pyarrow` | Latest | Data format interoperability |
-| `duckdb` | Latest | In-memory SQL analytics (optional) |
-| `pytest` | Latest | Unit testing framework |
-| `fastexcel` | Latest | Optimized Excel file handling |
-
-### Installation
-
-All dependencies are managed in `requirements.txt`. Install with:
-
-```bash
-pip install -r requirements.txt
-```
-
-### Optional Dependencies
-
-For advanced features, you can install additional packages:
-
-```bash
-# DuckDB SQL support (already included)
-pip install duckdb
-
-# Database support (if needed)
-pip install sqlalchemy
-```
-
-### Dependency Notes
-
-- **Polars** is the primary data processing library due to superior performance
-- **Pandas** is included as a fallback for maximum compatibility
-- **OpenPyXL** and **XlsxWriter** provide complementary Excel capabilities
-- **Watchdog** uses polling on Windows for reliable file detection
-- All packages are pinned to stable versions in requirements.txt
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2024-12-01 | Initial release — FastAPI UI, folder watcher, Excel reporting |
+| 1.1.0 | 2024-12-15 | Added user mapping enrichment, improved Excel handling |
+| 1.2.0 | 2025-01-10 | Enhanced error handling, comprehensive logging, Docker support |
+| 2.0.0 | 2026-06-23 | Session isolation, 5-report split, Category A/B unmatched, date filtering on all reports, CompName fallback, auto-cleanup, UI overhaul |
 
 ---
 
-## 🔧 Technologies & Stack
+## Author
 
-| Component | Technology | Purpose |
-|-----------|-----------|---------|
-| **Language** | Python 3.10+ | Core application development |
-| **Data Processing** | Polars, Pandas | High-performance DataFrames |
-| **Excel I/O** | OpenPyXL, XlsxWriter, Calamine | Read/write Excel files with formatting |
-| **File Monitoring** | Watchdog | Real-time folder monitoring |
-| **Web Framework** | FastAPI | REST API and web interface |
-| **Server** | Uvicorn | ASGI application server |
-| **Containerization** | Docker, Docker Compose | Environment consistency and deployment |
-| **Testing** | Pytest | Automated test suite |
-| **Configuration** | PyYAML | Configuration file parsing |
-| **Environment** | Python-dotenv | Environment variable management |
-| **Logging** | Loguru | Advanced logging with rotation |
-| **Data Formats** | PyArrow, DuckDB | Data interoperability and analytics |
+**Ravikant Bedi** — SCL Internship Project  
+GitHub: [https://github.com/RavikantBedi/SCL_23](https://github.com/RavikantBedi/SCL_23)
 
 ---
 
-## 🏗️ Core Modules
-
-### `app/main.py` - FastAPI Application
-- REST API endpoint definitions
-- File upload and processing orchestration
-- Report download endpoints
-- Health check and UI serving
-- Request validation and error handling
-
-### `app/parsers/` - File Parsing
-- **txt_parser.py**: Regex-based parsing for source binding TXT files
-- **excel_reader.py**: Multi-strategy Excel reading (Calamine → pandas fallback)
-- Data extraction and normalization
-
-### `app/comparators/reconciliation_engine.py` - Matching Logic
-- IP + MAC address comparison algorithm
-- Column name standardization
-- Record matching and grouping
-- Fallback matching strategies
-
-### `app/filters/` - Data Processing
-- **date_filter.py**: Time-based record filtering
-- **column_filter.py**: Column selection and extraction
-- Data quality assurance
-
-### `app/reports/excel_reporter.py` - Report Generation
-- XLSX file creation with formatting
-- Professional styling (headers, borders, alignment)
-- Timestamped report naming
-- Summary statistics generation
-
-### `app/utils/` - Utility Functions
-- **mac_utils.py**: MAC address normalization
-- **archive_manager.py**: File archiving and organization
-- **file_detector.py**: File type detection
-- **file_logger.py**: File-based logging
-
-### `app/watcher/folder_watcher.py` - Automatic Processing
-- Folder monitoring for new files
-- File pair detection (TXT + Excel)
-- Automatic pipeline orchestration
-- Thread-safe processing queue
-
-### `app/core/logger.py` - Logging Infrastructure
-- Centralized logger configuration
-- Rotation and retention policies
-- Console and file output
-
----
-
-## 📦 System Requirements
-
-### Minimum
-- **OS:** Windows, Linux, macOS
-- **Python:** 3.10 or higher
-- **RAM:** 2GB
-- **Disk:** 500MB (including dependencies)
-
-### Recommended
-- **Python:** 3.11+
-- **RAM:** 4GB+ (for large datasets)
-- **Disk:** 2GB+ (for logs and archives)
-- **CPU:** Multi-core processor for parallel processing
-
-### Docker Deployment
-- **Docker:** 20.10+
-- **Docker Compose:** 1.29+
-- **Memory:** 2GB minimum
-
----
-
-## ⚡ Performance Tuning
-
-### Optimization Tips
-
-**For Large Files (1000+ rows):**
-1. Use Polars instead of Pandas (automatically selected)
-2. Increase RAM allocation: `--host 0.0.0.0 --workers 4`
-3. Enable PyArrow for better memory efficiency
-4. Use DuckDB for complex queries
-
-**For Batch Processing:**
-1. Enable folder watcher for automatic processing
-2. Increase `process_delay` to batch multiple file pairs
-3. Use Docker for resource isolation
-
-**For Network Deployment:**
-1. Use reverse proxy (Nginx) for load balancing
-2. Deploy multiple API instances
-3. Use Docker Compose for orchestration
-
-### Benchmarks
-
-- **Parsing 10k TXT records:** ~50ms
-- **Reading 50k Excel rows:** ~100-200ms
-- **MAC normalization 10k records:** ~30ms
-- **Reconciliation matching:** O(n) linear time
-- **Report generation:** ~100ms for 10k records
-
----
-
-## 📞 Support & Documentation
-
-### Internal Documentation
-
-- **[Architecture Overview](docs/architecture.md)** - System design and component interactions
-- **[API Documentation](docs/api_docs.md)** - Complete endpoint reference
-- **[User Guide](docs/user_guide.md)** - Step-by-step usage instructions
-
-### Helpful Resources
-
-- **Logs:** Check `logs/app.log` for detailed operation history
-- **Configuration:** See `config/` folder for all settings
-- **Test Suite:** Review `tests/` folder for usage examples
-- **Docker:** See `docker/docker-compose.yml` for deployment setup
-
-### Common Questions
-
-**Q: How do I automate the reconciliation?**
-A: Use the folder watcher mode: `python -m app.watcher.folder_watcher`
-
-**Q: Can I process multiple file pairs?**
-A: Yes, place multiple TXT+Excel pairs in `input/incoming/` - the watcher processes them sequentially.
-
-**Q: How do I customize the reports?**
-A: Modify `app/reports/excel_reporter.py` to change formatting, or use the generated XLSX files as templates.
-
-**Q: What if my Excel file has a different date format?**
-A: The system automatically detects common date formats; configure in `config/settings.yaml` if needed.
-
-**Q: How do I integrate with external systems?**
-A: Use the REST API (`/upload`, `/download/matched`, etc.) to integrate with external systems or workflows.
-
----
-
-## 👥 Contributing
-
-This project was developed as internship work for SCL network asset reconciliation.
-
-**Areas for Enhancement:**
-- Database backend integration (PostgreSQL, MySQL)
-- Advanced analytics and reporting
-- Machine learning for anomaly detection
-- Web UI improvements
-- Additional data sources (SNMP, DHCP logs)
-
----
-
-## 👨‍💼 Author
-
-**SCL Internship Team**
-
-Developed to automate network asset reconciliation and reduce manual verification efforts.
-
----
-
-## 📄 License
+## License
 
 [Your License Here]
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
-- Built with FastAPI for robust API design
-- Uses Polars for high-performance data processing
+- Built with **FastAPI** for clean, async REST API design
+- **Polars** for blazing-fast DataFrame operations
+- **OpenPyXL** for professional Excel formatting
+- **Loguru** for structured, human-readable logging
 - Thanks to the open-source community for all dependencies
-
----
-
-## 📊 Version History
-
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0.0 | 2024-12-01 | Initial release with FastAPI UI, folder watcher, and Excel reporting |
-| 1.1.0 | 2024-12-15 | Added user mapping enrichment, improved Excel handling |
-| 1.2.0 | 2025-01-10 | Enhanced error handling, comprehensive logging, Docker support |
