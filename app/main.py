@@ -5,6 +5,8 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import polars as pl
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -305,7 +307,8 @@ async def upload_files(
         # Date is NOT a matching criterion.
 
         engine = ReconciliationEngine()
-        matched, unmatched = engine.compare(txt_df, inventory_df)
+        matched, txt_unmatched, inv_unmatched = engine.compare(txt_df, inventory_df)
+        unmatched = pl.concat([txt_unmatched, inv_unmatched], how="diagonal")
 
         # ---------------------------------
         # DATE FILTER  (applied to matched AND unmatched records)
@@ -314,6 +317,8 @@ async def upload_files(
         # from the reports. All records without a valid date will also be removed.
         matched = DateFilter().filter_by_months(matched, months=months, keep_nulls=False)
         unmatched = DateFilter().filter_by_months(unmatched, months=months, keep_nulls=False)
+        txt_unmatched = DateFilter().filter_by_months(txt_unmatched, months=months, keep_nulls=False)
+        inv_unmatched = DateFilter().filter_by_months(inv_unmatched, months=months, keep_nulls=False)
 
         # ---------------------------------
         # REPORTS (written into session folder)
@@ -323,6 +328,8 @@ async def upload_files(
         reporter.generate_reports(
             matched=matched,
             unmatched=unmatched,
+            txt_unmatched=txt_unmatched,
+            inv_unmatched=inv_unmatched,
             txt_count=txt_df.height,
             user_mapping=user_mapping_df,
             output_dir=str(session_report_dir)     # ← NEW: write into session folder
@@ -344,6 +351,8 @@ async def upload_files(
             "reports": {
                 "matched":   f"/download/{session_id}/matched",
                 "unmatched": f"/download/{session_id}/unmatched",
+                "txt_unmatched": f"/download/{session_id}/txt_unmatched",
+                "inv_unmatched": f"/download/{session_id}/inv_unmatched",
                 "summary":   f"/download/{session_id}/summary"
             }
         }
@@ -378,21 +387,55 @@ def download_matched(session_id: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-
 @app.get("/download/{session_id}/unmatched")
 def download_unmatched(session_id: str):
     _validate_session_id(session_id)
 
-    latest = _find_report(session_id, "unmatched")
+    latest = _find_report(session_id, "unmatched_combined")
     if not latest:
         raise HTTPException(
             status_code=404,
-            detail="No unmatched report found for this session. It may have expired or been removed."
+            detail="No unmatched combined report found for this session. It may have expired or been removed."
         )
 
     return FileResponse(
         str(latest),
         filename="unmatched.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+
+@app.get("/download/{session_id}/inv_unmatched")
+def download_inv_unmatched(session_id: str):
+    _validate_session_id(session_id)
+
+    latest = _find_report(session_id, "data_match")
+    if not latest:
+        raise HTTPException(
+            status_code=404,
+            detail="No unmatched inventory report found for this session. It may have expired or been removed."
+        )
+
+    return FileResponse(
+        str(latest),
+        filename="data_match.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+@app.get("/download/{session_id}/txt_unmatched")
+def download_txt_unmatched(session_id: str):
+    _validate_session_id(session_id)
+
+    latest = _find_report(session_id, "data_unmatched")
+    if not latest:
+        raise HTTPException(
+            status_code=404,
+            detail="No unmatched network report found for this session. It may have expired or been removed."
+        )
+
+    return FileResponse(
+        str(latest),
+        filename="data_unmatched.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 

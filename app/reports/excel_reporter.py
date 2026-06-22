@@ -174,6 +174,8 @@ class ExcelReporter:
         self,
         matched: pl.DataFrame,
         unmatched: pl.DataFrame,
+        txt_unmatched: pl.DataFrame,
+        inv_unmatched: pl.DataFrame,
         txt_count: int,
         user_mapping: pl.DataFrame | None = None,
         output_dir: str = "output/reports"      # ← NEW: defaults to old behavior
@@ -191,12 +193,16 @@ class ExcelReporter:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         matched_file = f"{base_path}matched_{timestamp}.xlsx"
-        unmatched_file = f"{base_path}unmatched_{timestamp}.xlsx"
+        unmatched_file = f"{base_path}unmatched_combined_{timestamp}.xlsx"
+        txt_unmatched_file = f"{base_path}data_unmatched_{timestamp}.xlsx"
+        inv_unmatched_file = f"{base_path}data_match_{timestamp}.xlsx"
         summary_file = f"{base_path}summary_{timestamp}.xlsx"
 
         # ---------------- ATTACH USER NAME ----------------
         matched = self._attach_user_name(matched, user_mapping)
         unmatched = self._attach_user_name(unmatched, user_mapping)
+        txt_unmatched = self._attach_user_name(txt_unmatched, user_mapping)
+        inv_unmatched = self._attach_user_name(inv_unmatched, user_mapping)
 
         # ---------------- ALIGN COLUMNS ----------------
         if "System Model" in matched.columns:
@@ -209,14 +215,22 @@ class ExcelReporter:
         for col in target_cols:
             if col not in unmatched.columns:
                 unmatched = unmatched.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
+            if col not in txt_unmatched.columns:
+                txt_unmatched = txt_unmatched.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
+            if col not in inv_unmatched.columns:
+                inv_unmatched = inv_unmatched.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
         
         unmatched = unmatched.select(target_cols)
+        txt_unmatched = txt_unmatched.select(target_cols)
+        inv_unmatched = inv_unmatched.select(target_cols)
 
         # ---------------- MATCHED ----------------
         self.save_excel(matched, matched_file, "Matched Assets")
 
         # ---------------- UNMATCHED ----------------
-        self.save_excel(unmatched, unmatched_file, "Unmatched Assets")
+        self.save_excel(unmatched, unmatched_file, "Unmatched Combined")
+        self.save_excel(inv_unmatched, inv_unmatched_file, "Unmatched Category A")
+        self.save_excel(txt_unmatched, txt_unmatched_file, "Unmatched Category B")
 
         # ---------------- SUMMARY ----------------
         match_percentage = (
@@ -230,14 +244,16 @@ class ExcelReporter:
                 "Generated On",
                 "Total TXT Records",
                 "Matched Records",
-                "Unmatched Records",
+                "Unmatched Inventory Records",
+                "Unmatched Network Records",
                 "Match Percentage"
             ],
             "Value": [
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 str(txt_count),
                 str(matched.height),
-                str(unmatched.height),
+                str(inv_unmatched.height),
+                str(txt_unmatched.height),
                 f"{match_percentage}%"
             ]
         })
@@ -246,5 +262,6 @@ class ExcelReporter:
 
         print("\nReports Generated:")
         print(matched_file)
-        print(unmatched_file)
+        print(inv_unmatched_file)
+        print(txt_unmatched_file)
         print(summary_file)

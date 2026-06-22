@@ -179,15 +179,14 @@ class ReconciliationEngine:
             how="anti"
         ).drop(["_ip_key", "_mac_key"])
 
-        unmatched = pl.concat([txt_unmatched, inv_unmatched], how="diagonal")
-
         logger.info(
             f"Reconciliation done | "
             f"Matched={matched.height}, "
-            f"Unmatched={unmatched.height}"
+            f"Unmatched TXT={txt_unmatched.height}, "
+            f"Unmatched Inventory={inv_unmatched.height}"
         )
 
-        return matched, unmatched
+        return matched, txt_unmatched, inv_unmatched
 
     # ──────────────────────────────────────────────────────────────────────
     # HELPERS
