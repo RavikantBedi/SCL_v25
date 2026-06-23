@@ -85,7 +85,7 @@ The system reconciles records using exact **IP + MAC address matching**, applies
 | `matched.xlsx` | Records where IP + MAC matched exactly between TXT and Inventory |
 | `unmatched.xlsx` | Combined view of all unmatched records (Category A + B) |
 | `data_match.xlsx` | **Category A** — Inventory assets NOT seen on the network (TXT) |
-| `data_unmatched.xlsx` | **Category B** — Network assets (TXT) NOT found in inventory |
+| `data_unmatched.xlsx` | **Category B** — Network assets (TXT) NOT found in inventory (excluding `Last AgentCom` column) |
 | `summary.xlsx` | Statistics: total records, match counts, match percentage, date filter used |
 
 ---
@@ -143,8 +143,8 @@ SCL_2026/
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/RavikantBedi/SCL_23.git
-cd SCL_23
+git clone https://github.com/RavikantBedi/SCL_24.git
+cd SCL_24
 
 # 2. Create and activate virtual environment
 python -m venv .venv
@@ -388,7 +388,7 @@ Check `logs/app.log` for detailed operation history.
 ## Author
 
 **Ravikant Bedi** — SCL Internship Project  
-GitHub: [https://github.com/RavikantBedi/SCL_23](https://github.com/RavikantBedi/SCL_23)
+GitHub: [https://github.com/RavikantBedi/SCL_24](https://github.com/RavikantBedi/SCL_24)
 
 ---
 
