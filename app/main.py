@@ -209,7 +209,8 @@ async def upload_files(
     txt_file:          UploadFile = File(...),
     excel_file:         UploadFile = File(...),
     user_mapping_file:  UploadFile = File(...),
-    months:             int        = Form(1)
+    months:             int        = Form(1),
+    txt_file_2:         UploadFile | None = None
 ):
 
     if months not in ALLOWED_MONTHS:
@@ -248,6 +249,9 @@ async def upload_files(
 
         with open(txt_path, "wb") as f:
             shutil.copyfileobj(txt_file.file, f)
+            if txt_file_2 and txt_file_2.filename:
+                f.write(b"\n")
+                shutil.copyfileobj(txt_file_2.file, f)
 
         with open(excel_path, "wb") as f:
             shutil.copyfileobj(excel_file.file, f)

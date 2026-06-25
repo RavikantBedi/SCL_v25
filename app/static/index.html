@@ -116,7 +116,7 @@
 
     /* UPLOAD ZONES — now 3 columns */
     .upload-grid {
-      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
       margin-bottom: 28px;
     }
     @media(max-width:820px) { .upload-grid { grid-template-columns: 1fr 1fr; } }
@@ -429,6 +429,27 @@
         </div>
       </div>
 
+      <div class="drop-zone" id="txt2Zone" role="button" tabindex="0">
+        <input type="file" id="txt2Input" accept=".txt" />
+        <div class="dz-icon txt">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="8" y1="13" x2="16" y2="13"/>
+            <line x1="8" y1="17" x2="16" y2="17"/>
+            <line x1="8" y1="9" x2="10" y2="9"/>
+          </svg>
+        </div>
+        <div class="dz-type txt">2nd TXT File</div>
+        <div class="dz-hint">Optional network export<br/><span style="color:#4f6180;font-size:0.76rem">Click or drag &amp; drop</span></div>
+        <div class="dz-filename" id="txt2Name" style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          <span id="txt2NameText"></span>
+        </div>
+      </div>
+
       <div class="drop-zone" id="xlsxZone" role="button" tabindex="0">
         <input type="file" id="xlsxInput" accept=".xlsx,.xls" />
         <div class="dz-icon xlsx">
@@ -646,6 +667,7 @@
    STATE
 ═══════════════════════════════════ */
 let txtFile   = null;
+let txt2File  = null;
 let xlsxFile  = null;
 let usersFile = null;
 
@@ -653,15 +675,19 @@ let usersFile = null;
    ELEMENTS
 ═══════════════════════════════════ */
 const txtInput        = document.getElementById('txtInput');
+const txt2Input       = document.getElementById('txt2Input');
 const xlsxInput       = document.getElementById('xlsxInput');
 const usersInput      = document.getElementById('usersInput');
 const txtZone         = document.getElementById('txtZone');
+const txt2Zone        = document.getElementById('txt2Zone');
 const xlsxZone        = document.getElementById('xlsxZone');
 const usersZone       = document.getElementById('usersZone');
 const txtName         = document.getElementById('txtName');
+const txt2Name        = document.getElementById('txt2Name');
 const xlsxName        = document.getElementById('xlsxName');
 const usersName       = document.getElementById('usersName');
 const txtNameText     = document.getElementById('txtNameText');
+const txt2NameText    = document.getElementById('txt2NameText');
 const xlsxNameText    = document.getElementById('xlsxNameText');
 const usersNameText   = document.getElementById('usersNameText');
 const processBtn      = document.getElementById('processBtn');
@@ -750,6 +776,7 @@ function setupZone(zone, input, nameBanner, nameText, kind) {
     }
     if (kind === 'xlsx')        xlsxFile  = file;
     else if (kind === 'users')  usersFile = file;
+    else if (kind === 'txt2')   txt2File  = file;
     else                        txtFile   = file;
 
     nameText.textContent = truncate(file.name);
@@ -765,6 +792,7 @@ function setupZone(zone, input, nameBanner, nameText, kind) {
   zone.addEventListener('keydown', e => { if(e.key==='Enter'||e.key===' ') input.click(); });
 }
 setupZone(txtZone,   txtInput,   txtName,   txtNameText,   'txt');
+setupZone(txt2Zone,  txt2Input,  txt2Name,  txt2NameText,  'txt2');
 setupZone(xlsxZone,  xlsxInput,  xlsxName,  xlsxNameText,  'xlsx');
 setupZone(usersZone, usersInput, usersName, usersNameText, 'users');
 
@@ -843,6 +871,9 @@ processBtn.addEventListener('click', async (e) => {
 
     const formData = new FormData();
     formData.append('txt_file',          txtFile);
+    if (txt2File) {
+      formData.append('txt_file_2',      txt2File);
+    }
     formData.append('excel_file',        xlsxFile);
     formData.append('user_mapping_file', usersFile);
     formData.append('months',            selectedMonths);
@@ -913,10 +944,10 @@ processBtn.addEventListener('click', async (e) => {
    RESET
 ═══════════════════════════════════ */
 resetBtn.addEventListener('click', () => {
-  txtFile = null; xlsxFile = null; usersFile = null;
-  txtInput.value = ''; xlsxInput.value = ''; usersInput.value = '';
-  txtName.style.display = 'none'; xlsxName.style.display = 'none'; usersName.style.display = 'none';
-  txtZone.classList.remove('has-file'); xlsxZone.classList.remove('has-file'); usersZone.classList.remove('has-file');
+  txtFile = null; txt2File = null; xlsxFile = null; usersFile = null;
+  txtInput.value = ''; txt2Input.value = ''; xlsxInput.value = ''; usersInput.value = '';
+  txtName.style.display = 'none'; txt2Name.style.display = 'none'; xlsxName.style.display = 'none'; usersName.style.display = 'none';
+  txtZone.classList.remove('has-file'); txt2Zone.classList.remove('has-file'); xlsxZone.classList.remove('has-file'); usersZone.classList.remove('has-file');
   resultPanel.classList.remove('visible');
   errorBlock.classList.remove('visible');
   resetBtn.classList.remove('visible');
